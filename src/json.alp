@@ -65,11 +65,21 @@ let parse_num text =
   match gather_num text [] with
   | (rest, num) -> Ok (rest, (bin_to_num(list_to_binary num)))
 
+let bin_contains val <<hd: type=binary unit=1, rest: type=binary>> =
+  match hd == val with
+  | true -> true
+  | false -> bin_contains val rest
+
+let bin_contains val <<"">> = false
+
 let bin_to_num num =
-  beam :erlang :binary_to_float [num] with
-    n, is_float n -> Float n
-  | _ -> beam :erlang :binary_to_integer [num] with
-           i, is_integer i -> Integer i 
+  match bin_contains <<".">> num with
+  | true ->
+      (beam :erlang :binary_to_float [num] with
+         n, is_float n -> Float n)
+  | false ->
+      (beam :erlang :binary_to_integer [num] with
+         i, is_integer i -> Integer i)
 
 let gather_num text acc =
   match text with
@@ -143,9 +153,13 @@ test "Can parse strings" =
   assert.equal (parse <<34,"hello world",34>>) 
                (Ok (String <<"hello world">>))
 
-test "Can parse numbers" =
+test "Can parse integers" =
   assert.equal (parse <<"2017">>)
                (Ok (Integer 2017))
+
+test "Can parse floats" =
+  assert.equal (parse <<"3.214">>)
+               (Ok (Float 3.214))
 
 test "Errors on trailing input" =
   assert.equal (parse <<34,"hello world",34,"trailing...">>) 
