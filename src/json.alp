@@ -29,7 +29,8 @@ type json_node =
   | String binary
   | Array (list json_node)
   | Boolean bool
-  | Number float
+  | Float float
+  | Integer int
 
 let parse text =
   match parse_node text with
@@ -61,7 +62,35 @@ let parse_node text =
   | <<"9">> -> parse_num text
 
 let parse_num text =
-  Ok (<<"">>, Number 42.0)
+  match gather_num text [] with
+  | (rest, num) -> Ok (rest, (bin_to_num(list_to_binary num)))
+
+let bin_to_num num =
+  beam :string :to_float [num] with
+    (n, _), is_float n -> Float n
+  | _ -> beam :erlang :binary_to_integer [num] with
+           i, is_integer i -> Integer i 
+
+let gather_num text acc =
+  match text with
+  | <<hd: type=binary unit=1, rest: type=binary>> ->
+      let next () = gather_num rest (hd :: acc) in
+      (match hd with
+       | <<"0">> -> next ()
+       | <<"1">> -> next ()
+       | <<"2">> -> next ()
+       | <<"3">> -> next ()
+       | <<"4">> -> next ()
+       | <<"4">> -> next ()
+       | <<"5">> -> next ()
+       | <<"6">> -> next ()
+       | <<"7">> -> next ()
+       | <<"8">> -> next ()
+       | <<"9">> -> next ()
+       | <<".">> -> next ()
+       | _ -> (text, reverse(acc)))
+
+  |  _ -> (text, reverse(acc)) 
 
 let make_str_node text =
   match parse_str text with
@@ -95,6 +124,7 @@ let list_to_binary l =
   beam :binary :list_to_bin [l] with
     b, is_binary b -> b
 
+
 let read_string text acc =
   match text with
   | <<92,34, rest: type=binary>> -> read_string rest (<<34>> :: acc)
@@ -106,12 +136,16 @@ let read_string text =
   read_string text []
 
 let parse_str text =
-  (require <<32>> text) *>>= fn t -> read_string t  
+  (require <<34>> text) *>>= fn t -> read_string t  
   
 
 test "Can parse strings" =
   assert.equal (parse <<34,"hello world",34>>) 
                (Ok (String <<"hello world">>))
+
+test "Can parse numbers" =
+  assert.equal (parse <<"2017">>)
+               (Ok (Integer 2017))
 
 test "Errors on trailing input" =
   assert.equal (parse <<34,"hello world",34,"trailing...">>) 
@@ -123,5 +157,5 @@ test "Drop ws" =
 
 test "Monadic chaining" =
   assert.equal
-    ((Ok <<"   hello">>) *>>= (require <<32>>) <*> drop_ws *>>= read_string)
-    (Ok (<<"">>, <<"hello">>))
+    (((Ok <<"   hello">>) *>>= (require <<32>>) <*> drop_ws) *>>= parse_str)
+    (Error "Expected required value")
