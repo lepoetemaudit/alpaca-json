@@ -51,7 +51,7 @@ let decons _ = (<<"">>, <<"">>)
 
 let parse_node text =
   -- try and identify the type
-  match hd text with
+  match hd (drop_ws text) with
   | <<34>> -> make_str_node text        
   | <<"0">> -> parse_num text
   | <<"1">> -> parse_num text
@@ -65,6 +65,8 @@ let parse_node text =
   | <<"9">> -> parse_num text
   | <<"[">> -> parse_list text
   | <<"{">> -> parse_object text
+  | <<"t">> -> parse_bool text
+  | <<"f">> -> parse_bool text
 
 let parse_num text =
   match gather_num text [] with
@@ -189,6 +191,12 @@ let read_object_nodes text acc =
                read_object_nodes (drop_ws rest__) ((keyname, node) :: acc)
            | <<val: type=utf8 unit=1, rest__: type=binary>> -> Error val)
         
+let parse_bool text =
+  match text with
+  | <<"true", rest: type=binary>> -> Ok (rest, Boolean true)
+  | <<"false", rest: type=binary>> -> Ok (rest, Boolean false)
+  | _ -> Error "Unknown ident"
+
      
 test "Can parse strings" =
   assert.equal (parse <<34,"hello world",34>>) 
@@ -215,6 +223,10 @@ test "Can parse objects" =
   assert.equal (parse <<"{", 34, "key", 34, ": 42, ", 34, "key2", 34, ": [1]}">>)
                (Ok (Object [ ( <<"key">>, Integer 42 )
                            , ( <<"key2">>, Array [Integer 1]) ]))
+
+test "Can parse bools" =
+  assert.equal (parse <<"[true, false]">>)
+               (Ok (Array [Boolean true, Boolean false]))
 
 test "Errors on trailing input" =
   assert.equal (parse <<34,"hello world",34,"trailing...">>) 
