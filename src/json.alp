@@ -38,8 +38,14 @@ let parse text =
   | Ok (_, node) -> Error "Unexpected trailing chars"
   | Error err -> Error err
 
-let hd <<h: type=binary unit=1, rest: type=binary>> = 
-  h
+let hd <<h: type=binary unit=1, rest: type=binary>> = h
+
+let hd <<h: type=binary unit=1>> = h
+
+let hd <<"">> = <<"">>
+
+let hd other =
+  beam :io :format ["wtf: ~s~n", [other]] with _ -> <<"">>
 
 let decons <<h: type=binary unit=1, rest: type=binary>> =
   (h, rest)
@@ -47,6 +53,8 @@ let decons <<h: type=binary unit=1, rest: type=binary>> =
 let decons _ = (<<"">>, <<"">>)
 
 let parse_node text =
+  let v = (beam :io :format ["Entering parsenode with ~p~n", [text]] with _ -> ()) in
+
   -- try and identify the type
   match hd text with
   | <<34>> -> make_str_node text        
@@ -60,8 +68,11 @@ let parse_node text =
   | <<"7">> -> parse_num text
   | <<"8">> -> parse_num text
   | <<"9">> -> parse_num text
+  | <<"[">> -> parse_list text
 
 let parse_num text =
+  let v = (beam :io :format ["Entering parsenum with ~p~n", [text]] with _ -> ()) in
+
   match gather_num text [] with
   | (rest, num) -> Ok (rest, (bin_to_num(list_to_binary num)))
 
@@ -118,6 +129,7 @@ let require value text =
   | (head, tail) -> match head == value with
                     | true -> Ok tail
                     | false -> Error "Expected required value"
+                      
   
 let reverse_ list acc =
   match list with
@@ -147,7 +159,25 @@ let read_string text =
 
 let parse_str text =
   (require <<34>> text) *>>= fn t -> read_string t  
-  
+
+let parse_list text =
+  (require <<"[">> text) *>>= fn t -> read_list_nodes t []
+
+    
+
+let read_list_nodes text acc =
+  let v = (beam :io :format ["read_list_nodes: ~p~n", [text]] with _ -> ()) in
+  match parse_node (drop_ws text) with
+  | Ok (rest, node) ->
+    let v_ = (beam :io :format ["after parse_node: ~p~n", [rest]] with _ -> ()) in
+    (match drop_ws rest with 
+     | <<"]", rest_: type=binary>> -> 
+         Ok (rest_, (Array (reverse (node :: acc))))
+     | <<",", rest_: type=binary>> -> 
+         read_list_nodes rest_ (node :: acc))
+     
+  | Error err -> Error err
+
 
 test "Can parse strings" =
   assert.equal (parse <<34,"hello world",34>>) 
@@ -160,6 +190,15 @@ test "Can parse integers" =
 test "Can parse floats" =
   assert.equal (parse <<"3.214">>)
                (Ok (Float 3.214))
+
+test "Can parse arrays" =
+  assert.equal (parse <<"[1, 2, 3]">>)
+               (Ok (Array [(Integer 1), (Integer 2), (Integer 3)]))
+
+test "Can parse nested arrays" =
+  assert.equal (parse <<"[[1, 2, 3], [4, 5, 6]]">>)
+               (Ok (Array [ Array [(Integer 1), (Integer 2), (Integer 3) ]
+                          , Array [(Integer 4), (Integer 5), (Integer 6) ]]))
 
 test "Errors on trailing input" =
   assert.equal (parse <<34,"hello world",34,"trailing...">>) 
