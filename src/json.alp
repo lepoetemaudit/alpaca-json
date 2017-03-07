@@ -69,10 +69,9 @@ let parse_node text =
   | <<"8">> -> parse_num text
   | <<"9">> -> parse_num text
   | <<"[">> -> parse_list text
+  | <<"{">> -> parse_object text
 
 let parse_num text =
-  let v = (beam :io :format ["Entering parsenum with ~p~n", [text]] with _ -> ()) in
-
   match gather_num text [] with
   | (rest, num) -> Ok (rest, (bin_to_num(list_to_binary num)))
 
@@ -163,21 +162,33 @@ let parse_str text =
 let parse_list text =
   (require <<"[">> text) *>>= fn t -> read_list_nodes t []
 
-    
-
 let read_list_nodes text acc =
-  let v = (beam :io :format ["read_list_nodes: ~p~n", [text]] with _ -> ()) in
   match parse_node (drop_ws text) with
   | Ok (rest, node) ->
-    let v_ = (beam :io :format ["after parse_node: ~p~n", [rest]] with _ -> ()) in
     (match drop_ws rest with 
      | <<"]", rest_: type=binary>> -> 
          Ok (rest_, (Array (reverse (node :: acc))))
      | <<",", rest_: type=binary>> -> 
-         read_list_nodes rest_ (node :: acc))
-     
+         read_list_nodes rest_ (node :: acc)
+     | _ -> Error "Unexpected ident in list")
   | Error err -> Error err
 
+let parse_object text =
+  (require <<"{">> text) *>>= fn t -> read_object_nodes t []
+
+let read_object_nodes text acc =
+  match parse_str text with
+  | Ok (rest, keyname) ->
+      let after_colon = (require <<":">> (drop_ws rest)) in
+      -- ** Alpaca Bug:
+      -- ** Inlining the fn doesn't work and nor does 
+      -- ** referencing the function directly
+      let drop_w = (fn x -> drop_ws x) in
+      let parse_n = (fn t -> parse_node t) in
+      let node_val = after_colon <*> drop_w *>>= parse_n in
+       (match node_val with
+       | Ok (<<"}", rest_: type=binary>>, node) -> 
+           Ok (rest_, Object [(keyname, node)]))
 
 test "Can parse strings" =
   assert.equal (parse <<34,"hello world",34>>) 
@@ -199,6 +210,10 @@ test "Can parse nested arrays" =
   assert.equal (parse <<"[[1, 2, 3], [4, 5, 6]]">>)
                (Ok (Array [ Array [(Integer 1), (Integer 2), (Integer 3) ]
                           , Array [(Integer 4), (Integer 5), (Integer 6) ]]))
+
+test "Can parse objects" =
+  assert.equal (parse <<"{", 34, "key", 34, ": 42}">>)
+               (Ok (Object [ ( <<"key">>, Integer 42 ) ]))
 
 test "Errors on trailing input" =
   assert.equal (parse <<34,"hello world",34,"trailing...">>) 
