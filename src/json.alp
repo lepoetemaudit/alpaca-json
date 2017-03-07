@@ -44,17 +44,12 @@ let hd <<h: type=binary unit=1>> = h
 
 let hd <<"">> = <<"">>
 
-let hd other =
-  beam :io :format ["wtf: ~s~n", [other]] with _ -> <<"">>
-
 let decons <<h: type=binary unit=1, rest: type=binary>> =
   (h, rest)
 
 let decons _ = (<<"">>, <<"">>)
 
 let parse_node text =
-  let v = (beam :io :format ["Entering parsenode with ~p~n", [text]] with _ -> ()) in
-
   -- try and identify the type
   match hd text with
   | <<34>> -> make_str_node text        
@@ -177,19 +172,24 @@ let parse_object text =
   (require <<"{">> text) *>>= fn t -> read_object_nodes t []
 
 let read_object_nodes text acc =
-  match parse_str text with
-  | Ok (rest, keyname) ->
-      let after_colon = (require <<":">> (drop_ws rest)) in
+  match parse_str text with    
+    | Ok (rest, keyname) ->
+      let after_colon = require <<":">> (drop_ws rest) in
       -- ** Alpaca Bug:
       -- ** Inlining the fn doesn't work and nor does 
       -- ** referencing the function directly
       let drop_w = (fn x -> drop_ws x) in
       let parse_n = (fn t -> parse_node t) in
-      let node_val = after_colon <*> drop_w *>>= parse_n in
-       (match node_val with
-       | Ok (<<"}", rest_: type=binary>>, node) -> 
-           Ok (rest_, Object [(keyname, node)]))
-
+      match after_colon <*> drop_w *>>= parse_n with
+        Ok (rest_, node) ->
+          (match drop_ws rest_ with
+           | <<"}", rest__: type=binary>> -> 
+               Ok (rest__, Object (reverse (keyname, node) :: acc))
+           | <<",", rest__: type=binary>> -> 
+               read_object_nodes (drop_ws rest__) ((keyname, node) :: acc)
+           | <<val: type=utf8 unit=1, rest__: type=binary>> -> Error val)
+        
+     
 test "Can parse strings" =
   assert.equal (parse <<34,"hello world",34>>) 
                (Ok (String <<"hello world">>))
@@ -212,8 +212,9 @@ test "Can parse nested arrays" =
                           , Array [(Integer 4), (Integer 5), (Integer 6) ]]))
 
 test "Can parse objects" =
-  assert.equal (parse <<"{", 34, "key", 34, ": 42}">>)
-               (Ok (Object [ ( <<"key">>, Integer 42 ) ]))
+  assert.equal (parse <<"{", 34, "key", 34, ": 42, ", 34, "key2", 34, ": [1]}">>)
+               (Ok (Object [ ( <<"key">>, Integer 42 )
+                           , ( <<"key2">>, Array [Integer 1]) ]))
 
 test "Errors on trailing input" =
   assert.equal (parse <<34,"hello world",34,"trailing...">>) 
