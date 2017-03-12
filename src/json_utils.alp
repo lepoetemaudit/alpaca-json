@@ -1,0 +1,76 @@
+module json_utils
+
+export_type result
+
+export (*>>=) 
+export (<*>)
+export (|>)
+export (<|)
+
+export hd, decons, bin_contains, bin_to_num, drop_ws, require, list_to_binary
+export reverse, bin_contains
+
+type result 'a 'b = 
+    Error 'a 
+  | Ok 'b
+
+-- Infixes for result type
+let (*>>=) v f =
+  match v with
+  | Ok val -> f val
+  | Error e -> Error e
+
+let (<*>) v f =
+  match v with
+  | Ok val -> Ok (f val)
+  | Error e -> Error e
+
+-- Function application
+let (|>) v f = f v
+let (<|) f v = f v
+
+-- Binary utilities
+let hd <<h: type=binary unit=1, rest: type=binary>> = h
+let hd <<h: type=binary unit=1>> = h
+let hd <<"">> = <<"">>
+
+let decons <<h: type=binary unit=1, rest: type=binary>> =
+  (h, rest)
+let decons _ = (<<"">>, <<"">>)
+
+let bin_contains val <<hd: type=binary unit=1, rest: type=binary>> =
+  match hd == val with
+  | true -> true
+  | false -> bin_contains val rest
+
+let bin_contains val <<"">> = false
+
+
+let drop_ws text =
+  match text with
+  | <<32, rest: type=binary>> -> drop_ws rest
+  | t -> t
+
+let require value text =
+  match decons text with
+  | (<<"">>, _) -> Error "Unexpected end of data"
+  | (head, tail) -> match head == value with
+                    | true -> Ok tail
+                    | false -> Error "Expected required value"
+                      
+let list_to_binary l =
+  beam :binary :list_to_bin [l] with
+    b, is_binary b -> b
+
+-- General utils
+
+let reverse_ list acc =
+  match list with
+  | h :: t -> reverse_ t (h :: acc)
+  | [] -> acc
+
+let reverse [] = []
+
+let reverse list =
+  reverse_ list []
+

@@ -1,28 +1,11 @@
 module json
 
+import_type json_utils.result
+import json_utils.[(|>), (*>>=), (<*>)]
+import json_utils.[drop_ws, hd, decons, require, list_to_binary, reverse, bin_contains]
 
 export_type json_node
 export parse
-export hd
-
-type result 'a 'b = 
-    Error 'a 
-  | Ok 'b
-
-let (*>>=) v f =
-  match v with
-  | Ok val -> f val
-  | Error e -> Error e
-
-let (<*>) v f =
-  match v with
-  | Ok val -> Ok (f val)
-  | Error e -> Error e
-
-let (|>) v f = f v
-let (<|) f v = f v
-
-let apply f v = f v
 
 type json_node =
     Object (list (binary, json_node))
@@ -31,53 +14,6 @@ type json_node =
   | Boolean bool
   | Float float
   | Integer int
-
-let parse text =
-  match parse_node text with
-  | Ok (<<"">>, node) -> Ok node
-  | Ok (_, node) -> Error "Unexpected trailing chars"
-  | Error err -> Error err
-
-let hd <<h: type=binary unit=1, rest: type=binary>> = h
-
-let hd <<h: type=binary unit=1>> = h
-
-let hd <<"">> = <<"">>
-
-let decons <<h: type=binary unit=1, rest: type=binary>> =
-  (h, rest)
-
-let decons _ = (<<"">>, <<"">>)
-
-let parse_node text =
-  -- try and identify the type
-  match hd (drop_ws text) with
-  | <<34>> -> make_str_node text        
-  | <<"0">> -> parse_num text
-  | <<"1">> -> parse_num text
-  | <<"2">> -> parse_num text
-  | <<"3">> -> parse_num text
-  | <<"4">> -> parse_num text
-  | <<"5">> -> parse_num text
-  | <<"6">> -> parse_num text
-  | <<"7">> -> parse_num text
-  | <<"8">> -> parse_num text
-  | <<"9">> -> parse_num text
-  | <<"[">> -> parse_list text
-  | <<"{">> -> parse_object text
-  | <<"t">> -> parse_bool text
-  | <<"f">> -> parse_bool text
-
-let parse_num text =
-  match gather_num text [] with
-  | (rest, num) -> Ok (rest, (bin_to_num(list_to_binary num)))
-
-let bin_contains val <<hd: type=binary unit=1, rest: type=binary>> =
-  match hd == val with
-  | true -> true
-  | false -> bin_contains val rest
-
-let bin_contains val <<"">> = false
 
 let bin_to_num num =
   match bin_contains <<".">> num with
@@ -88,73 +24,40 @@ let bin_to_num num =
       (beam :erlang :binary_to_integer [num] with
          i, is_integer i -> Integer i)
 
+let parse_num text =
+  match gather_num text [] with
+  | (rest, num) -> Ok (rest, (bin_to_num(list_to_binary num)))
+
 let gather_num text acc =
   match text with
   | <<hd: type=binary unit=1, rest: type=binary>> ->
       let next () = gather_num rest (hd :: acc) in
       (match hd with
-       | <<"0">> -> next ()
-       | <<"1">> -> next ()
-       | <<"2">> -> next ()
-       | <<"3">> -> next ()
-       | <<"4">> -> next ()
-       | <<"4">> -> next ()
-       | <<"5">> -> next ()
-       | <<"6">> -> next ()
-       | <<"7">> -> next ()
-       | <<"8">> -> next ()
-       | <<"9">> -> next ()
-       | <<".">> -> next ()
+       | <<"0">> -> next () | <<"1">> -> next () | <<"2">> -> next ()
+       | <<"3">> -> next () | <<"4">> -> next () | <<"4">> -> next ()
+       | <<"5">> -> next () | <<"6">> -> next () | <<"7">> -> next ()
+       | <<"8">> -> next () | <<"9">> -> next () | <<".">> -> next ()
        | _ -> (text, reverse(acc)))
 
   |  _ -> (text, reverse(acc)) 
+
+let read_string_ text acc =
+  match text with
+  | <<92,34, rest: type=binary>> -> read_string_ rest (<<34>> :: acc)
+  | <<34, rest: type=binary>> -> Ok (rest, list_to_binary (reverse acc))
+  | <<c: type=binary unit=1, rest: type=binary>> -> read_string_ rest (c :: acc)
+  | <<"">> -> Error "Unexpected end of string"
+
+let read_string text = 
+  read_string_ text []
+
+let parse_str text =
+  text |> (require <<34>>) *>>= read_string
 
 let make_str_node text =
   match parse_str text with
   | Ok (rest, val) -> Ok (rest, String val)
   | Error err -> Error err    
-
-let drop_ws text =
-  match text with
-  | <<32, rest: type=binary>> -> drop_ws rest
-  | t -> t
-
-let require value text =
-  match decons text with
-  | (<<"">>, _) -> Error "Unexpected end of data"
-  | (head, tail) -> match head == value with
-                    | true -> Ok tail
-                    | false -> Error "Expected required value"
-                      
-  
-let reverse_ list acc =
-  match list with
-  | h :: t -> reverse_ t (h :: acc)
-  | [] -> acc
-
-let reverse [] = []
-
-let reverse list =
-  reverse_ list []
-
-
-let list_to_binary l =
-  beam :binary :list_to_bin [l] with
-    b, is_binary b -> b
-
-
-let read_string text acc =
-  match text with
-  | <<92,34, rest: type=binary>> -> read_string rest (<<34>> :: acc)
-  | <<34, rest: type=binary>> -> Ok (rest, list_to_binary (reverse acc))
-  | <<c: type=binary unit=1, rest: type=binary>> -> read_string rest (c :: acc)
-  | <<"">> -> Error "Unexpected end of string"
-
-let read_string text =
-  read_string text []
-
-let parse_str text =
-  (require <<34>> text) *>>= fn t -> read_string t  
 
 let parse_list text =
   (require <<"[">> text) *>>= fn t -> read_list_nodes t []
@@ -176,13 +79,9 @@ let parse_object text =
 let read_object_nodes text acc =
   match parse_str text with    
     | Ok (rest, keyname) ->
-      let after_colon = require <<":">> (drop_ws rest) in
-      -- ** Alpaca Bug:
-      -- ** Inlining the fn doesn't work and nor does 
-      -- ** referencing the function directly
-      let drop_w = (fn x -> drop_ws x) in
+      -- We can 'forward declare' using this pattern
       let parse_n = (fn t -> parse_node t) in
-      match after_colon <*> drop_w *>>= parse_n with
+      match rest |> drop_ws |> require <<":">> <*> drop_ws *>>= parse_n with
         Ok (rest_, node) ->
           (match drop_ws rest_ with
            | <<"}", rest__: type=binary>> -> 
@@ -197,8 +96,32 @@ let parse_bool text =
   | <<"false", rest: type=binary>> -> Ok (rest, Boolean false)
   | _ -> Error "Unknown ident"
 
+let parse text =
+  match parse_node text with
+  | Ok (<<"">>, node) -> Ok node
+  | Ok (_, node) -> Error "Unexpected trailing chars"
+  | Error err -> Error err
+
+let parse_node text =
+  -- try and identify the type
+  match text |> drop_ws |> hd with
+  -- Strings
+  | <<34>> -> make_str_node text        
+  -- Ints and flots
+  | <<"0">> -> parse_num text | <<"1">> -> parse_num text 
+  | <<"2">> -> parse_num text | <<"3">> -> parse_num text
+  | <<"4">> -> parse_num text | <<"5">> -> parse_num text
+  | <<"6">> -> parse_num text | <<"7">> -> parse_num text
+  | <<"8">> -> parse_num text | <<"9">> -> parse_num text
+  -- Arrays
+  | <<"[">> -> parse_list text
+  -- Objects
+  | <<"{">> -> parse_object text
+  -- Booleans
+  | <<"t">> -> parse_bool text
+  | <<"f">> -> parse_bool text
      
-test "Can parse strings" =
+test "Can parse strings 2" =
   assert.equal (parse <<34,"hello world",34>>) 
                (Ok (String <<"hello world">>))
 
@@ -219,7 +142,7 @@ test "Can parse nested arrays" =
                (Ok (Array [ Array [(Integer 1), (Integer 2), (Integer 3) ]
                           , Array [(Integer 4), (Integer 5), (Integer 6) ]]))
 
-test "Can parse objects" =
+ test "Can parse objects" =
   assert.equal (parse <<"{", 34, "key", 34, ": 42, ", 34, "key2", 34, ": [1]}">>)
                (Ok (Object [ ( <<"key">>, Integer 42 )
                            , ( <<"key2">>, Array [Integer 1]) ]))
@@ -231,12 +154,3 @@ test "Can parse bools" =
 test "Errors on trailing input" =
   assert.equal (parse <<34,"hello world",34,"trailing...">>) 
                (Error "Unexpected trailing chars")
-
-test "Drop ws" =
-  assert.equal ((Ok <<"  rest">>) <*> drop_ws)
-               (Ok <<"rest">>)
-
-test "Monadic chaining" =
-  assert.equal
-    (((Ok <<"   hello">>) *>>= (require <<32>>) <*> drop_ws) *>>= parse_str)
-    (Error "Expected required value")
