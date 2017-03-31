@@ -1,4 +1,12 @@
-[{<<"alpaca_lib">>,
+[{<<"alpaca">>,
+  {git,"https://github.com/alpaca-lang/alpaca",
+       {ref,"106b99622aa94abaabfd33ed0a3aa0033925a4f9"}},
+  0},
+ {<<"alpaca_lib">>,
   {git,"https://github.com/alpaca-lang/alpaca_lib",
        {ref,"f7b71df4dea74d9540ef0d6ed8f54e996587cb11"}},
-  0}].
+  0},
+ {<<"epo_runtime">>,
+  {git,"git://github.com/brigadier/epo_runtime.git",
+       {ref,"a3e50e7cebb526f833757e867bbe914c1da7baa3"}},
+  1}].

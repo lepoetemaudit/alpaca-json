@@ -30,9 +30,15 @@ let (|>) v f = f v
 let (<|) f v = f v
 
 -- Binary utilities
-let hd <<h: type=binary unit=1, rest: type=binary>> = h
-let hd <<h: type=binary unit=1>> = h
-let hd <<"">> = <<"">>
+--let hd <<h: type=binary unit=1, rest: type=binary>> = h
+--let hd <<h: type=binary unit=1>> = h
+--let hd <<"">> = <<"">>
+-- Binary utilities
+let hd val =
+  match val with
+  | <<h: type=binary unit=1, rest: type=binary>> -> h
+  | <<h: type=binary unit=1>> -> h
+  | other -> other
 
 let decons <<h: type=binary unit=1, rest: type=binary>> =
   (h, rest)
